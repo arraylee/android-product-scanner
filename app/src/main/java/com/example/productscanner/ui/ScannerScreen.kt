@@ -34,6 +34,8 @@ fun ScannerScreen() {
     
     var detectionResults by remember { mutableStateOf(listOf<DetectionResult>()) }
     var isDetecting by remember { mutableStateOf(false) }
+    var showStatistics by remember { mutableStateOf(false) }
+    var statistics by remember { mutableStateOf(mapOf<String, Int>()) }
     
     val objectDetector = remember { ObjectDetector(context) }
     
@@ -45,19 +47,36 @@ fun ScannerScreen() {
                 if (!isDetecting) {
                     isDetecting = true
                     val results = objectDetector.detect(imageProxy)
-                    detectionResults = results
+                    if (results.isNotEmpty()) {
+                        detectionResults = detectionResults + results
+                    }
                     isDetecting = false
                 }
             }
         )
         
         // 检测结果覆盖层
-        DetectionOverlay(
-            results = detectionResults,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(16.dp)
-        )
+        if (!showStatistics) {
+            DetectionOverlay(
+                results = detectionResults.takeLast(5),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+            )
+        }
+        
+        // 统计结果弹窗
+        if (showStatistics) {
+            StatisticsDialog(
+                statistics = statistics,
+                onDismiss = { showStatistics = false },
+                onClear = { 
+                    objectDetector.clearHistory()
+                    detectionResults = emptyList()
+                    statistics = emptyMap()
+                }
+            )
+        }
         
         // 标题
         Text(
@@ -71,6 +90,22 @@ fun ScannerScreen() {
                 .background(Color.Black.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+        
+        // 识别输出按钮
+        Button(
+            onClick = {
+                statistics = objectDetector.getStatistics()
+                showStatistics = true
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF4CAF50)
+            )
+        ) {
+            Text("识别输出", fontSize = 16.sp)
+        }
     }
 }
 
@@ -138,7 +173,7 @@ fun DetectionOverlay(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 300.dp),
+            .heightIn(max = 250.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.Black.copy(alpha = 0.8f)
         )
@@ -147,7 +182,7 @@ fun DetectionOverlay(
             modifier = Modifier.padding(16.dp)
         ) {
             Text(
-                text = "识别结果",
+                text = "实时识别",
                 color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -163,19 +198,10 @@ fun DetectionOverlay(
                 )
             } else {
                 LazyColumn {
-                    items(results) { result ->
+                    items(results.reversed()) { result ->
                         DetectionResultItem(result)
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = "总计: ${results.size} 件商品",
-                    color = Color.Green,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
     }
@@ -201,4 +227,69 @@ fun DetectionResultItem(result: DetectionResult) {
             fontWeight = FontWeight.Bold
         )
     }
+}
+
+@Composable
+fun StatisticsDialog(
+    statistics: Map<String, Int>,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "识别结果统计",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                if (statistics.isEmpty()) {
+                    Text("暂无识别记录", color = Color.Gray)
+                } else {
+                    Text(
+                        "总计: ${statistics.values.sum()} 件商品",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF4CAF50)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    statistics.entries.sortedByDescending { it.value }.forEach { (name, count) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(name, fontSize = 14.sp)
+                            Text(
+                                "$count 件",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2196F3)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    onClear()
+                    onDismiss()
+                }
+            ) {
+                Text("清空记录", color = Color.Red)
+            }
+        }
+    )
 }

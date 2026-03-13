@@ -12,42 +12,53 @@ class ObjectDetector(private val context: Context) {
     
     companion object {
         // 商品类别标签
-        private val LABELS = listOf(
+        val LABELS = listOf(
             "东鹏特饮250ml",
             "可口可乐500ml",
             "康师傅冰红茶500ml",
             "康师傅红烧牛肉面大食桶115g",
-            "泉阳泉野生蓝莓果汁饮料"
+            "泉阳泉野生蓝莓果汁饮料",
+            "娟珊有机纯牛奶"
         )
     }
     
     private var frameCount = 0
+    private val detectionHistory = mutableListOf<DetectionResult>()
     
     fun detect(imageProxy: ImageProxy): List<DetectionResult> {
         frameCount++
         
-        // 每30帧模拟一次检测结果（演示用）
-        return if (frameCount % 30 == 0) {
-            listOf(
-                DetectionResult(
-                    label = LABELS.random(),
-                    confidence = 0.5f + Random.nextFloat() * 0.4f,
-                    boundingBox = Rect(100, 100, 300, 400)
-                )
+        // 每20帧模拟一次检测结果（演示用）
+        if (frameCount % 20 == 0) {
+            val result = DetectionResult(
+                label = LABELS.random(),
+                confidence = 0.6f + Random.nextFloat() * 0.35f,
+                boundingBox = Rect(100, 100, 300, 400)
             )
-        } else {
-            emptyList()
+            detectionHistory.add(result)
+            return listOf(result)
         }
+        return emptyList()
     }
     
     fun detect(bitmap: Bitmap): List<DetectionResult> {
-        return listOf(
-            DetectionResult(
-                label = LABELS.random(),
-                confidence = 0.7f + Random.nextFloat() * 0.25f,
-                boundingBox = Rect(50, 50, 200, 300)
-            )
+        val result = DetectionResult(
+            label = LABELS.random(),
+            confidence = 0.7f + Random.nextFloat() * 0.25f,
+            boundingBox = Rect(50, 50, 200, 300)
         )
+        detectionHistory.add(result)
+        return listOf(result)
+    }
+    
+    // 获取统计结果
+    fun getStatistics(): Map<String, Int> {
+        return detectionHistory.groupingBy { it.label }.eachCount()
+    }
+    
+    // 清空历史记录
+    fun clearHistory() {
+        detectionHistory.clear()
     }
     
     fun close() {
