@@ -1,10 +1,7 @@
-// ScannerScreen.kt - 重新设计版
+// ScannerScreen.kt - AI 自动识别版（完整版）
 package com.example.productscanner.ui
 
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
@@ -25,30 +22,44 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.productscanner.detection.ObjectDetector
 import com.example.productscanner.model.ScanRecord
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlinx.coroutines.*
 import java.util.concurrent.Executors
 
 @Composable
 fun ScannerScreen() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     
-    // 识别记录列表
-    var scanRecords by remember { mutableStateOf(listOf<ScanRecord>()) }
+    // 状态
+    var latestRecords by remember { mutableStateOf(listOf<ScanRecord>()) }
+    var allRecords by remember { mutableStateOf(listOf<ScanRecord>()) }
+    var isDetecting by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
+    var statusText by remember { mutableStateOf("点击 📷 识别 按钮开始扫描") }
     
-    // 对话框状态
-    var showProductDialog by remember { mutableStateOf(false) }
-    var showHistoryDialog by remember { mutableStateOf(false) }
-    
+    // ObjectDetector
     val objectDetector = remember { ObjectDetector(context) }
-    val dateFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    
+    // 用于触发识别的状态
+    var triggerDetection by remember { mutableStateOf(false) }
     
     Box(modifier = Modifier.fillMaxSize()) {
-        // 相机预览（仅预览，不自动识别）
-        CameraPreview(modifier = Modifier.fillMaxSize())
+        // 相机预览 + 分析器
+        CameraPreviewWithAnalysis(
+            modifier = Modifier.fillMaxSize(),
+            triggerDetection = triggerDetection,
+            onDetectionComplete = { records ->
+                latestRecords = records
+                allRecords = objectDetector.getAllRecords()
+                isDetecting = false
+                statusText = if (records.isEmpty()) "未识别到商品，请调整角度重试" else "✅ 识别完成！"
+                triggerDetection = false
+            },
+            objectDetector = objectDetector
+        )
         
-        // 顶部标题 + 最新识别结果
+        // 顶部：标题和最新识别结果
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -56,7 +67,7 @@ fun ScannerScreen() {
         ) {
             // 标题
             Text(
-                text = "📦 商品扫描",
+                text = "📦 AI 商品扫描",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -65,27 +76,44 @@ fun ScannerScreen() {
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
             
-            // 显示最新一次识别结果
-            if (scanRecords.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                val latest = scanRecords.last()
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF4CAF50).copy(alpha = 0.9f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "最新识别: ${latest.productName}",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // 状态文字
+            Text(
+                text = statusText,
+                fontSize = 14.sp,
+                color = if (statusText.startsWith("✅")) Color(0xFF4CAF50) else Color.Gray,
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.6f), MaterialTheme.shapes.small)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // 最新识别结果
+            if (latestRecords.isNotEmpty()) {
+                latestRecords.forEach { record ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFF4CAF50).copy(alpha = 0.9f)
                         )
-                        Text(
-                            text = "数量: ${latest.quantity} 箱 | 时间: ${latest.time}",
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 12.sp
-                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = record.productName,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "数量: ${record.quantity} 箱 | 时间: ${record.time}",
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
@@ -100,70 +128,83 @@ fun ScannerScreen() {
         ) {
             // 识别按钮
             Button(
-                onClick = { showProductDialog = true },
+                onClick = {
+                    if (!isDetecting) {
+                        isDetecting = true
+                        statusText = "🔍 正在识别..."
+                        latestRecords = emptyList()
+                        triggerDetection = true
+                    }
+                },
+                enabled = !isDetecting,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2196F3)
+                    containerColor = if (isDetecting) Color.Gray else Color(0xFF2196F3)
                 ),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("📷 识别", fontSize = 16.sp)
+                if (isDetecting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Text("识别中...", fontSize = 16.sp)
+                    }
+                } else {
+                    Text("📷 识别", fontSize = 16.sp)
+                }
             }
             
-            // 历史记录按钮
+            // 记录按钮
             Button(
-                onClick = { showHistoryDialog = true },
+                onClick = { showHistory = true },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF4CAF50)
                 ),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("📋 记录 (${scanRecords.size})", fontSize = 16.sp)
-            }
-            
-            // 统计按钮
-            Button(
-                onClick = { showHistoryDialog = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFFF9800)
-                ),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("📊 统计", fontSize = 16.sp)
+                Text("📋 记录 (${allRecords.size})", fontSize = 16.sp)
             }
         }
-    }
-    
-    // 商品选择对话框
-    if (showProductDialog) {
-        ProductSelectionDialog(
-            productNames = objectDetector.getProductNames(),
-            onDismiss = { showProductDialog = false },
-            onConfirm = { productName, quantity ->
-                val record = ScanRecord(
-                    productName = productName,
-                    quantity = quantity,
-                    time = dateFormat.format(Date())
-                )
-                scanRecords = scanRecords + record
-                showProductDialog = false
-            }
-        )
-    }
-    
-    // 历史记录/统计对话框
-    if (showHistoryDialog) {
-        HistoryDialog(
-            records = scanRecords,
-            onDismiss = { showHistoryDialog = false },
-            onClear = { scanRecords = emptyList() }
-        )
+        
+        // 历史记录对话框
+        if (showHistory) {
+            HistoryDialog(
+                records = allRecords,
+                onDismiss = { showHistory = false },
+                onClear = { 
+                    objectDetector.clearRecords()
+                    allRecords = emptyList()
+                }
+            )
+        }
     }
 }
 
 @Composable
-fun CameraPreview(modifier: Modifier = Modifier) {
+fun CameraPreviewWithAnalysis(
+    modifier: Modifier = Modifier,
+    triggerDetection: Boolean,
+    onDetectionComplete: (List<ScanRecord>) -> Unit,
+    objectDetector: ObjectDetector
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
+    
+    // 用于暂存检测触发状态
+    var shouldDetect by remember { mutableStateOf(false) }
+    
+    // 监听触发信号
+    LaunchedEffect(triggerDetection) {
+        if (triggerDetection) {
+            shouldDetect = true
+        }
+    }
     
     AndroidView(
         modifier = modifier,
@@ -175,10 +216,46 @@ fun CameraPreview(modifier: Modifier = Modifier) {
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
                 
+                // 预览
                 val preview = Preview.Builder()
                     .build()
                     .also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                
+                // 图像分析（用于识别）
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also { analysis ->
+                        analysis.setAnalyzer(
+                            Executors.newSingleThreadExecutor()
+                        ) { imageProxy ->
+                            // 检查是否需要检测
+                            if (shouldDetect) {
+                                shouldDetect = false  // 重置标志
+                                
+                                // 执行检测
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        val records = objectDetector.detectFromImage(imageProxy)
+                                        
+                                        withContext(Dispatchers.Main) {
+                                            onDetectionComplete(records)
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        imageProxy.close()
+                                        withContext(Dispatchers.Main) {
+                                            onDetectionComplete(emptyList())
+                                        }
+                                    }
+                                }
+                            } else {
+                                // 不检测时也要关闭 imageProxy
+                                imageProxy.close()
+                            }
+                        }
                     }
                 
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -188,7 +265,8 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                     cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
-                        preview
+                        preview,
+                        imageAnalysis
                     )
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -201,95 +279,11 @@ fun CameraPreview(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ProductSelectionDialog(
-    productNames: List<String>,
-    onDismiss: () -> Unit,
-    onConfirm: (String, Int) -> Unit
-) {
-    var selectedProduct by remember { mutableStateOf(productNames.firstOrNull() ?: "") }
-    var quantity by remember { mutableStateOf("1") }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "📦 识别商品",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 商品选择
-                Text("选择商品类型:", fontSize = 14.sp, color = Color.Gray)
-                
-                // 简化的商品列表
-                LazyColumn(
-                    modifier = Modifier.height(200.dp)
-                ) {
-                    items(productNames) { name ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedProduct == name,
-                                onClick = { selectedProduct = name }
-                            )
-                            Text(
-                                text = name,
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                    }
-                }
-                
-                // 数量输入
-                Text("输入数量（箱）:", fontSize = 14.sp, color = Color.Gray)
-                OutlinedTextField(
-                    value = quantity,
-                    onValueChange = { 
-                        if (it.isEmpty() || it.toIntOrNull() != null) {
-                            quantity = it
-                        }
-                    },
-                    label = { Text("数量") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val qty = quantity.toIntOrNull() ?: 1
-                    if (selectedProduct.isNotEmpty() && qty > 0) {
-                        onConfirm(selectedProduct, qty)
-                    }
-                }
-            ) {
-                Text("确认识别")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
-}
-
-@Composable
 fun HistoryDialog(
     records: List<ScanRecord>,
     onDismiss: () -> Unit,
     onClear: () -> Unit
 ) {
-    // 统计每种商品的总数
     val statistics = remember(records) {
         records.groupBy { it.productName }
             .mapValues { entry -> entry.value.sumOf { it.quantity } }
@@ -306,7 +300,6 @@ fun HistoryDialog(
         },
         text = {
             Column {
-                // 统计摘要
                 if (statistics.isNotEmpty()) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -347,7 +340,6 @@ fun HistoryDialog(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
                 
-                // 详细记录
                 Text(
                     "详细记录 (${records.size} 次识别):",
                     fontSize = 14.sp,
