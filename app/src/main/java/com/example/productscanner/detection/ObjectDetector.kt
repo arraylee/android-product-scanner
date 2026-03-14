@@ -29,16 +29,22 @@ class ObjectDetector(private val context: Context) {
         frameCount++
         
         // 每20帧模拟一次检测结果（演示用）
-        if (frameCount % 20 == 0) {
+        val results = if (frameCount % 20 == 0) {
             val result = DetectionResult(
                 label = LABELS.random(),
                 confidence = 0.6f + Random.nextFloat() * 0.35f,
                 boundingBox = Rect(100, 100, 300, 400)
             )
             detectionHistory.add(result)
-            return listOf(result)
+            listOf(result)
+        } else {
+            emptyList()
         }
-        return emptyList()
+        
+        // 必须关闭 imageProxy，否则相机会卡住
+        imageProxy.close()
+        
+        return results
     }
     
     fun detect(bitmap: Bitmap): List<DetectionResult> {
@@ -61,7 +67,14 @@ class ObjectDetector(private val context: Context) {
         detectionHistory.clear()
     }
     
-    fun close() {
-        // 清理资源
+    // 手动触发检测（点击按钮时使用）
+    fun detectManual(): DetectionResult? {
+        val result = DetectionResult(
+            label = LABELS.random(),
+            confidence = 0.75f + Random.nextFloat() * 0.2f,
+            boundingBox = Rect(100, 100, 300, 400)
+        )
+        detectionHistory.add(result)
+        return result
     }
 }

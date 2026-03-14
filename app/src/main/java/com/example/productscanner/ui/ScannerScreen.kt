@@ -91,20 +91,40 @@ fun ScannerScreen() {
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
         
-        // 识别输出按钮
-        Button(
-            onClick = {
-                statistics = objectDetector.getStatistics()
-                showStatistics = true
-            },
+        // 按钮行
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF4CAF50)
-            )
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("识别输出", fontSize = 16.sp)
+            // 手动识别按钮
+            Button(
+                onClick = {
+                    val result = objectDetector.detectManual()
+                    if (result != null) {
+                        detectionResults = detectionResults + result
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2196F3)
+                )
+            ) {
+                Text("📷 识别", fontSize = 16.sp)
+            }
+            
+            // 识别输出按钮
+            Button(
+                onClick = {
+                    statistics = objectDetector.getStatistics()
+                    showStatistics = true
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4CAF50)
+                )
+            ) {
+                Text("📊 统计", fontSize = 16.sp)
+            }
         }
     }
 }
@@ -141,6 +161,7 @@ fun CameraPreview(
                             Executors.newSingleThreadExecutor(),
                             { imageProxy ->
                                 onImageAnalyzed(imageProxy)
+                                // 注意：imageProxy 在 ObjectDetector.detect() 内部关闭
                             }
                         )
                     }
